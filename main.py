@@ -4,8 +4,11 @@ from discord import app_commands, Message
 import csv
 import os
 import re
+from dotenv import load_dotenv
 
-TOKEN = ""
+
+load_dotenv()
+TOKEN = os.getenv("TOKEN")
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -81,6 +84,17 @@ async def scrap(interaction: discord.Interaction):
 #  COMMAND: /from_file
 # =========================
 
+@bot.tree.command(name="download", description="download the csv")
+async def download(interaction: discord.Interaction):
+    await interaction.response.defer(thinking=True)
+    guild_id = interaction.guild.id
+    ensure_csv_exists(guild_id)
+    path = csv_path(guild_id)
+    await interaction.followup.send(
+        content="voici ton CSV",
+        file=discord.File(path)
+    )
+
 @bot.tree.command(name="from_file", description="Add rows from an uploaded CSV file.")
 @app_commands.describe(csv_file="Le fichier CSV à importer")
 async def from_file(interaction: discord.Interaction, csv_file: discord.Attachment):
@@ -128,14 +142,8 @@ async def add_context_menu(interaction: discord.Interaction, message: discord.Me
 
 
 class ExtraInputModal(discord.ui.Modal, title="Add info to CSV"):
-    input_user = discord.ui.TextInput(
-        label="User (@name), name, or custom string",
-        placeholder="Ex: @Youllou or Jean or Something custom",
-        required=True
-    )
-
     extra_field = discord.ui.TextInput(
-        label="Extra info",
+        label="Extra info, like the person if not already @",
         placeholder="Optional additional text",
         required=False
     )
@@ -148,30 +156,6 @@ class ExtraInputModal(discord.ui.Modal, title="Add info to CSV"):
         # Extract message info
         text, ats = extract_mentions(self.message)
 
-        # 1) Process the "user" field
-        user_input = self.input_user.value.strip()
-
-        # If it looks like a real mention (<@12345>)
-        if re.match(r"<@!?(\d+)>", user_input):
-            # Already a valid mention → keep as is
-            parsed_user = user_input
-
-        else:
-            # Try to fuzzy-match by username
-            guild = interaction.guild
-            lowered = user_input.lower()
-
-            match = discord.utils.find(
-                lambda m: lowered in m.name.lower(),
-                guild.members
-            )
-
-            if match:
-                parsed_user = f"@{match.name}"
-            else:
-                # Nothing found → treat as custom string
-                parsed_user = user_input
-
         # 2) Extra text
         extra_text = self.extra_field.value if self.extra_field.value else ""
 
@@ -182,7 +166,7 @@ class ExtraInputModal(discord.ui.Modal, title="Add info to CSV"):
 
         with open(path, "a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow([text, ats, parsed_user + (" | " + extra_text if extra_text else "")])
+            writer.writerow([text, ats, extra_text if extra_text else ""])
 
         await interaction.response.send_message("Added to CSV ✔️", ephemeral=True)
 
